@@ -21,14 +21,15 @@ export type TaskAction = {
   needsComment: boolean;
 };
 
-export function actionsFor(role: UserRole, status: TaskStatus): TaskAction[] {
-  if (role === 'executor' && status === 'new') {
+/** Status buttons for this role. An executor only moves a task assigned to them. */
+export function actionsFor(role: UserRole, status: TaskStatus, isAssignee: boolean): TaskAction[] {
+  if (role === 'executor' && isAssignee && status === 'new') {
     return [{ to: 'in_progress', label: 'Взять в работу', needsComment: false }];
   }
-  if (role === 'executor' && status === 'in_progress') {
+  if (role === 'executor' && isAssignee && status === 'in_progress') {
     return [{ to: 'in_review', label: 'Отправить на проверку', needsComment: false }];
   }
-  if (role === 'executor' && status === 'rework') {
+  if (role === 'executor' && isAssignee && status === 'rework') {
     return [{ to: 'in_progress', label: 'Вернуть в работу', needsComment: false }];
   }
   if (role === 'assigner' && status === 'in_review') {

@@ -1,6 +1,6 @@
 # mini-crm
 
-Mini-CRM for construction sites and tasks. The app is a Vite + React + TypeScript SPA. Screen labels are Russian. Sign-in and the read screens talk to Supabase. Creating sites and tasks is still a stub. Row-level security in this pass is permissive for any signed-in user.
+Mini-CRM for construction sites and tasks. The app is a Vite + React + TypeScript SPA. Screen labels are Russian. An assigner creates, edits, and deletes sites and tasks. An executor sees their tasks and only the status buttons their role can use. Those buttons call `transition_task`. Row-level security in this pass is still permissive for any signed-in user, so the screens hide the other role's actions and filter the executor's lists in the client. The database does not enforce that yet, and the status function still only writes `tasks.status`.
 
 ## Requirements
 
@@ -52,4 +52,4 @@ Vite prints a local URL (default `http://localhost:5173`).
 | `/tasks/:id` | Task, actions, history |
 | `/my-tasks` | Tasks for the executor |
 
-`/sites`, `/sites/:id`, `/tasks/:id`, and `/my-tasks` redirect to `/login` when there is no session. After sign-in the app loads `profiles` for the current user. An executor opens `/my-tasks`; an assigner opens `/sites`. «Мои задачи» selects `tasks` where `assignee_id` is the signed-in user. Task actions call `transition_task`; that SQL function is still a stub.
+`/sites`, `/sites/:id`, `/tasks/:id`, and `/my-tasks` redirect to `/login` when there is no session. After sign-in the app loads `profiles` for the current user. An executor opens `/my-tasks` and the navigation leads with that screen; an assigner opens `/sites` and only sees that destination. «Мои задачи» selects `tasks` where `assignee_id` is the signed-in user. Task actions call `transition_task`. That SQL function is still a stub: it does not check the role or the allowed edge, it ignores the rework comment, and it does not write `task_status_events`.

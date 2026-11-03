@@ -53,6 +53,11 @@
   margin: 0;
 }
 
+.multiline {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .danger {
   --button-bg: var(--color-danger);
   --button-hover: var(--color-danger-hover);

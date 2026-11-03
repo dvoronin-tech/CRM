@@ -1,33 +1,138 @@
-import { Anchor, Button, Group, Modal, Select, Stack, Table, Textarea, TextInput } from '@mantine/core';
-import { useDisclosure } from '@mantine/hooks';
-import { type FormEvent, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Anchor, Button, Group, Modal, Stack, Table } from '@mantine/core';
+import { useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ErrorText, PageLoader } from '../components/PageStatus';
+import { SiteFormModal } from '../components/SiteFormModal';
+import { TaskFormModal, type TaskFormValue } from '../components/TaskFormModal';
 import { TASK_STATUS_LABEL } from '../domain/labels';
 import { useQuery } from '../hooks/useQuery';
-import { fetchSiteDetail } from '../lib/queries';
+import {
+  createTask,
+  deleteSite,
+  deleteTask,
+  fetchExecutors,
+  fetchSiteDetail,
+  updateSite,
+  updateTask,
+  type TaskListItem,
+} from '../lib/queries';
 import layout from '../styles/layout.module.scss';
+
+const EMPTY_TASK: TaskFormValue & { assigneeName: string | null } = {
+  title: '',
+  description: '',
+  assigneeId: '',
+  assigneeName: null,
+};
 
 export function SitePage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { profile } = useAuth();
-  const [createOpened, { open: openCreate, close: closeCreate }] = useDisclosure(false);
-  const [deleteOpened, { open: openDelete, close: closeDelete }] = useDisclosure(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const viewer = profile ? { id: profile.id, role: profile.role } : null;
-  const { data, error, loading } = useQuery(() => fetchSiteDetail(id, viewer), [id, profile?.id, profile?.role]);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [siteFormOpened, setSiteFormOpened] = useState(false);
+  const [deleteSiteOpened, setDeleteSiteOpened] = useState(false);
+  const [deleteSiteError, setDeleteSiteError] = useState<string | null>(null);
+  const [deletingSite, setDeletingSite] = useState(false);
+  const [taskMode, setTaskMode] = useState<'create' | 'edit' | null>(null);
+  const [editingTask, setEditingTask] = useState<TaskListItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<TaskListItem | null>(null);
+  const [deleteTaskError, setDeleteTaskError] = useState<string | null>(null);
+  const [deletingTask, setDeletingTask] = useState(false);
+  const isAssigner = profile?.role === 'assigner';
+  const { data, error, loading } = useQuery(
+    () =>
+      profile
+        ? fetchSiteDetail(id, { id: profile.id, role: profile.role })
+        : Promise.resolve({ data: { site: null, tasks: [] }, error: null }),
+    [id, profile?.id, profile?.role, reloadKey],
+  );
+  const executorsQuery = useQuery(
+    () => (isAssigner ? fetchExecutors() : Promise.resolve({ data: [], error: null })),
+    [isAssigner],
+  );
 
-  function handleCreateTask(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    // TODO: insert into public.tasks for this site. Status starts as "new". Author is the current assigner.
-    setNotice('Создание задачи пока не подключено');
+  function refresh() {
+    setReloadKey((value) => value + 1);
   }
 
-  function handleDelete() {
-    // TODO: delete the site. Confirm because tasks cascade with it. Assigner only.
-    setNotice('Удаление пока не подключено');
-    closeDelete();
+  async function handleSaveSite(name: string, address: string) {
+    const result = await updateSite(id, name, address);
+    if (result.error) return result.error;
+    refresh();
+    return null;
+  }
+
+  function closeDeleteSite() {
+    if (deletingSite) return;
+    setDeleteSiteOpened(false);
+    setDeleteSiteError(null);
+  }
+
+  async function handleDeleteSite() {
+    setDeletingSite(true);
+    setDeleteSiteError(null);
+    const result = await deleteSite(id);
+    setDeletingSite(false);
+    if (result.error) {
+      setDeleteSiteError(result.error);
+      return;
+    }
+    navigate('/sites', { replace: true });
+  }
+
+  function openCreateTask() {
+    setEditingTask(null);
+    setTaskMode('create');
+  }
+
+  function openEditTask(task: TaskListItem) {
+    setEditingTask(task);
+    setTaskMode('edit');
+  }
+
+  function closeTaskForm() {
+    setTaskMode(null);
+  }
+
+  async function handleSaveTask(value: TaskFormValue) {
+    if (taskMode === 'edit' && editingTask) {
+      const result = await updateTask(editingTask.id, value);
+      if (result.error) return result.error;
+      refresh();
+      return null;
+    }
+
+    const result = await createTask(id, value);
+    if (result.error) return result.error;
+    refresh();
+    return null;
+  }
+
+  function openDeleteTask(task: TaskListItem) {
+    setDeleteTaskError(null);
+    setDeleteTarget(task);
+  }
+
+  function closeDeleteTask() {
+    if (deletingTask) return;
+    setDeleteTarget(null);
+    setDeleteTaskError(null);
+  }
+
+  async function handleDeleteTask() {
+    if (!deleteTarget) return;
+    setDeletingTask(true);
+    setDeleteTaskError(null);
+    const result = await deleteTask(deleteTarget.id);
+    setDeletingTask(false);
+    if (result.error) {
+      setDeleteTaskError(result.error);
+      return;
+    }
+    setDeleteTarget(null);
+    refresh();
   }
 
   if (loading && data === null) return <PageLoader />;
@@ -35,6 +140,18 @@ export function SitePage() {
   if (!data?.site) return <p className={layout.muted}>Объект не найден</p>;
 
   const { site, tasks } = data;
+  const executorOptions = (executorsQuery.data ?? []).map((executor) => ({
+    value: executor.id,
+    label: executor.fullName,
+  }));
+  const taskInitial = editingTask
+    ? {
+        title: editingTask.title,
+        description: editingTask.description,
+        assigneeId: editingTask.assignee_id,
+        assigneeName: editingTask.assigneeName,
+      }
+    : EMPTY_TASK;
 
   return (
     <section className={layout.page}>
@@ -43,14 +160,19 @@ export function SitePage() {
           <h1 className={layout.title}>{site.name}</h1>
           <p className={layout.muted}>{site.address}</p>
         </div>
-        <div className={layout.actions}>
-          <Button type="button" onClick={openCreate}>
-            Новая задача
-          </Button>
-          <Button type="button" className={layout.danger} onClick={openDelete}>
-            Удалить
-          </Button>
-        </div>
+        {isAssigner ? (
+          <div className={layout.actions}>
+            <Button type="button" variant="default" onClick={() => setSiteFormOpened(true)}>
+              Изменить
+            </Button>
+            <Button type="button" onClick={openCreateTask}>
+              Новая задача
+            </Button>
+            <Button type="button" className={layout.danger} onClick={() => setDeleteSiteOpened(true)}>
+              Удалить
+            </Button>
+          </div>
+        ) : null}
       </header>
       <p>
         <Anchor component={Link} to="/sites">
@@ -58,9 +180,12 @@ export function SitePage() {
         </Anchor>
       </p>
       {error ? <ErrorText>{error}</ErrorText> : null}
-      {notice ? <ErrorText>{notice}</ErrorText> : null}
       <h2 className={layout.title}>Задачи</h2>
-      {tasks.length === 0 ? <p className={layout.muted}>На этом объекте задач пока нет</p> : null}
+      {tasks.length === 0 ? (
+        <p className={layout.muted}>
+          {isAssigner ? 'На этом объекте задач пока нет' : 'На этом объекте у вас нет задач'}
+        </p>
+      ) : null}
       {tasks.length > 0 ? (
         <Table highlightOnHover>
           <Table.Thead>
@@ -68,6 +193,7 @@ export function SitePage() {
               <Table.Th>Название</Table.Th>
               <Table.Th>Статус</Table.Th>
               <Table.Th>Исполнитель</Table.Th>
+              {isAssigner ? <Table.Th>Действия</Table.Th> : null}
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -80,35 +206,78 @@ export function SitePage() {
                 </Table.Td>
                 <Table.Td>{TASK_STATUS_LABEL[task.status]}</Table.Td>
                 <Table.Td>{task.assigneeName ?? 'Имя недоступно'}</Table.Td>
+                {isAssigner ? (
+                  <Table.Td>
+                    <div className={layout.actions}>
+                      <Button type="button" variant="default" onClick={() => openEditTask(task)}>
+                        Изменить
+                      </Button>
+                      <Button type="button" className={layout.danger} onClick={() => openDeleteTask(task)}>
+                        Удалить
+                      </Button>
+                    </div>
+                  </Table.Td>
+                ) : null}
               </Table.Tr>
             ))}
           </Table.Tbody>
         </Table>
       ) : null}
-      <Modal opened={createOpened} onClose={closeCreate} title="Новая задача">
-        <form onSubmit={handleCreateTask}>
-          <Stack gap="md">
-            <TextInput label="Название" name="title" required />
-            <Textarea label="Описание" name="description" autosize minRows={3} />
-            <Select label="Исполнитель" name="assignee" placeholder="Список подключится позже" data={[]} />
-            {notice ? <ErrorText>{notice}</ErrorText> : null}
-            <Group justify="flex-end" gap="sm">
-              <Button type="button" variant="default" onClick={closeCreate}>
-                Отмена
-              </Button>
-              <Button type="submit">Сохранить</Button>
-            </Group>
-          </Stack>
-        </form>
-      </Modal>
-      <Modal opened={deleteOpened} onClose={closeDelete} title="Удалить объект?">
+      <SiteFormModal
+        opened={siteFormOpened}
+        mode="edit"
+        formKey={site.id}
+        initialName={site.name}
+        initialAddress={site.address}
+        onClose={() => setSiteFormOpened(false)}
+        onSubmit={handleSaveSite}
+      />
+      <TaskFormModal
+        opened={taskMode !== null}
+        mode={taskMode === 'edit' ? 'edit' : 'create'}
+        formKey={editingTask?.id ?? 'new'}
+        initial={taskInitial}
+        executors={executorOptions}
+        executorsLoading={executorsQuery.loading && executorsQuery.data === null}
+        executorsError={executorsQuery.error}
+        onClose={closeTaskForm}
+        onSubmit={handleSaveTask}
+      />
+      <Modal opened={deleteSiteOpened} onClose={closeDeleteSite} title="Удалить объект?">
         <Stack gap="md">
-          <p className={layout.muted}>Вместе с объектом удалятся его задачи. Это действие нельзя отменить.</p>
+          <p className={layout.muted}>
+            Вместе с объектом удалятся его задачи и их история. Это действие нельзя отменить.
+          </p>
+          {deleteSiteError ? <ErrorText>{deleteSiteError}</ErrorText> : null}
           <Group justify="flex-end" gap="sm">
-            <Button type="button" variant="default" onClick={closeDelete}>
+            <Button type="button" variant="default" onClick={closeDeleteSite}>
               Отмена
             </Button>
-            <Button type="button" className={layout.danger} onClick={handleDelete}>
+            <Button
+              type="button"
+              className={layout.danger}
+              loading={deletingSite}
+              onClick={() => void handleDeleteSite()}
+            >
+              Удалить
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+      <Modal opened={deleteTarget !== null} onClose={closeDeleteTask} title="Удалить задачу?">
+        <Stack gap="md">
+          <p className={layout.muted}>Вместе с задачей удалится её история. Это действие нельзя отменить.</p>
+          {deleteTaskError ? <ErrorText>{deleteTaskError}</ErrorText> : null}
+          <Group justify="flex-end" gap="sm">
+            <Button type="button" variant="default" onClick={closeDeleteTask}>
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              className={layout.danger}
+              loading={deletingTask}
+              onClick={() => void handleDeleteTask()}
+            >
               Удалить
             </Button>
           </Group>
