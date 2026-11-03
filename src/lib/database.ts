@@ -38,17 +38,48 @@ export type TaskEventRow = {
   created_at: string;
 };
 
-type Table<Row extends Record<string, unknown>, Rel extends readonly unknown[] = []> = {
+type Table<
+  Row extends Record<string, unknown>,
+  Rel extends readonly unknown[] = [],
+  Insert = Partial<Row>,
+  Update = Partial<Row>,
+> = {
   Row: Row;
-  Insert: Partial<Row>;
-  Update: Partial<Row>;
+  Insert: Insert;
+  Update: Update;
   Relationships: Rel;
+};
+
+/** Client writes are closed. Status changes go through transition_task. */
+type NoClientWrite = Record<string, never>;
+
+export type SiteInsert = {
+  name: string;
+  address: string;
+};
+
+export type SiteUpdate = {
+  name?: string;
+  address?: string;
+};
+
+export type TaskInsert = {
+  site_id: string;
+  title: string;
+  description?: string;
+  assignee_id: string;
+};
+
+export type TaskUpdate = {
+  title?: string;
+  description?: string;
+  assignee_id?: string;
 };
 
 export type Database = {
   public: {
     Tables: {
-      profiles: Table<Profile>;
+      profiles: Table<Profile, [], NoClientWrite, NoClientWrite>;
       sites: Table<
         SiteRow,
         [
@@ -59,7 +90,9 @@ export type Database = {
             referencedRelation: 'profiles';
             referencedColumns: ['id'];
           },
-        ]
+        ],
+        SiteInsert,
+        SiteUpdate
       >;
       tasks: Table<
         TaskRow,
@@ -85,7 +118,9 @@ export type Database = {
             referencedRelation: 'profiles';
             referencedColumns: ['id'];
           },
-        ]
+        ],
+        TaskInsert,
+        TaskUpdate
       >;
       task_status_events: Table<
         TaskEventRow,
@@ -104,7 +139,9 @@ export type Database = {
             referencedRelation: 'profiles';
             referencedColumns: ['id'];
           },
-        ]
+        ],
+        NoClientWrite,
+        NoClientWrite
       >;
     };
     Views: Record<string, never>;
