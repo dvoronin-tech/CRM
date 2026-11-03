@@ -1,6 +1,6 @@
 # mini-crm
 
-UI scaffold for a small CRM of construction sites and tasks. The app is a Vite + React + TypeScript SPA. Screen labels are Russian. Supabase calls, auth guards, and row-level security are not connected yet.
+Mini-CRM for construction sites and tasks. The app is a Vite + React + TypeScript SPA. Screen labels are Russian. Sign-in and the read screens talk to Supabase. Creating sites and tasks is still a stub. Row-level security in this pass is permissive for any signed-in user.
 
 ## Requirements
 
@@ -24,7 +24,7 @@ Set:
 - `VITE_SUPABASE_URL` — project URL from the Supabase API settings
 - `VITE_SUPABASE_ANON_KEY` — the public anon key
 
-The screens render without these values. The client in `src/lib/supabase.ts` reads them on first use. Put only the anon key in `VITE_` variables. Do not commit `.env.local`.
+The shell renders without these values and the login screen explains that the connection is missing. Put only the anon or publishable key in `VITE_` variables. Do not commit `.env.local`. There are no seeded users in the repository: sign-in needs accounts created in the Supabase dashboard, plus a matching `profiles` row.
 
 ## Run
 
@@ -52,4 +52,4 @@ Vite prints a local URL (default `http://localhost:5173`).
 | `/tasks/:id` | Task, actions, history |
 | `/my-tasks` | Tasks for the executor |
 
-`useSession` returns `null`. Navigation shows both role destinations until a profile is loaded. There is no route guard yet.
+`/sites`, `/sites/:id`, `/tasks/:id`, and `/my-tasks` redirect to `/login` when there is no session. After sign-in the app loads `profiles` for the current user. An executor opens `/my-tasks`; an assigner opens `/sites`. «Мои задачи» selects `tasks` where `assignee_id` is the signed-in user. Task actions call `transition_task`; that SQL function is still a stub.
