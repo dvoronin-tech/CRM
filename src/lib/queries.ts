@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, TaskStatus, UserRole } from './database';
 import { embedOne } from './format';
-import { CONFIG_ERROR, loadErrorMessage, transitionErrorMessage } from './messages';
+import { CONFIG_ERROR, loadErrorMessage, mutationErrorMessage, transitionErrorMessage } from './messages';
 import { getSupabase } from './supabase';
 
 export type QueryResult<T> = {
@@ -19,10 +19,16 @@ export type SiteListItem = {
 export type TaskListItem = {
   id: string;
   title: string;
+  description: string;
   status: TaskStatus;
   created_at: string;
   assignee_id: string;
   assigneeName: string | null;
+};
+
+export type ExecutorOption = {
+  id: string;
+  fullName: string;
 };
 
 export type MyTaskItem = {
@@ -61,7 +67,7 @@ export type HistoryItem = {
 const SITE_LIST = 'id, name, address, created_at' as const;
 
 const TASK_LIST =
-  'id, title, status, created_at, assignee_id, assignee:profiles!tasks_assignee_id_fkey(full_name)' as const;
+  'id, title, description, status, created_at, assignee_id, assignee:profiles!tasks_assignee_id_fkey(full_name)' as const;
 
 const MY_TASKS =
   'id, title, status, created_at, site_id, site:sites!tasks_site_id_fkey(id, name)' as const;
@@ -85,8 +91,25 @@ async function withClient<T>(
   }
 }
 
-export function fetchSites(): Promise<QueryResult<SiteListItem[]>> {
+export function fetchSites(viewer: { id: string; role: UserRole }): Promise<QueryResult<SiteListItem[]>> {
   return withClient(async (supabase) => {
+    if (viewer.role === 'executor') {
+      const { data: taskRows, error: taskError } = await supabase
+        .from('tasks')
+        .select('site_id')
+        .eq('assignee_id', viewer.id);
+      if (taskError) return { data: null, error: loadErrorMessage(taskError) };
+      const siteIds = [...new Set((taskRows ?? []).map((row) => row.site_id))];
+      if (siteIds.length === 0) return { data: [], error: null };
+      const { data, error } = await supabase
+        .from('sites')
+        .select(SITE_LIST)
+        .in('id', siteIds)
+        .order('name', { ascending: true });
+      if (error) return { data: null, error: loadErrorMessage(error) };
+      return { data: data ?? [], error: null };
+    }
+
     const { data, error } = await supabase.from('sites').select(SITE_LIST).order('name', { ascending: true });
     if (error) return { data: null, error: loadErrorMessage(error) };
     return { data: data ?? [], error: null };
@@ -116,18 +139,40 @@ export function fetchSiteDetail(
     if (siteResult.error) return { data: null, error: loadErrorMessage(siteResult.error) };
     if (taskResult.error) return { data: null, error: loadErrorMessage(taskResult.error) };
 
+    const tasks = (taskResult.data ?? []).map((row) => ({
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      status: row.status,
+      created_at: row.created_at,
+      assignee_id: row.assignee_id,
+      assigneeName: embedOne(row.assignee)?.full_name ?? null,
+    }));
+
+    if (viewer?.role === 'executor' && tasks.length === 0) {
+      return { data: { site: null, tasks: [] }, error: null };
+    }
+
     return {
       data: {
         site: siteResult.data,
-        tasks: (taskResult.data ?? []).map((row) => ({
-          id: row.id,
-          title: row.title,
-          status: row.status,
-          created_at: row.created_at,
-          assignee_id: row.assignee_id,
-          assigneeName: embedOne(row.assignee)?.full_name ?? null,
-        })),
+        tasks,
       },
+      error: null,
+    };
+  });
+}
+
+export function fetchExecutors(): Promise<QueryResult<ExecutorOption[]>> {
+  return withClient(async (supabase) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .eq('role', 'executor')
+      .order('full_name', { ascending: true });
+    if (error) return { data: null, error: loadErrorMessage(error) };
+    return {
+      data: (data ?? []).map((row) => ({ id: row.id, fullName: row.full_name })),
       error: null,
     };
   });
@@ -232,5 +277,83 @@ export function transitionTask(
     });
     if (error) return { data: null, error: transitionErrorMessage(error) };
     return { data: true, error: null };
+  });
+}
+
+function expectWrite(
+  error: { message: string; code?: string } | null,
+  rows: readonly { id: string }[] | null,
+  emptyMessage: string,
+  fallback = 'Не удалось сохранить',
+): QueryResult<true> {
+  if (error) return { data: null, error: mutationErrorMessage(error, fallback) };
+  if (!rows?.length) return { data: null, error: emptyMessage };
+  return { data: true, error: null };
+}
+
+export function createSite(name: string, address: string): Promise<QueryResult<{ id: string }>> {
+  return withClient(async (supabase) => {
+    const { data, error } = await supabase.from('sites').insert({ name, address }).select('id').single();
+    if (error) return { data: null, error: mutationErrorMessage(error) };
+    return { data: { id: data.id }, error: null };
+  });
+}
+
+export function updateSite(siteId: string, name: string, address: string): Promise<QueryResult<true>> {
+  return withClient(async (supabase) => {
+    const { data, error } = await supabase.from('sites').update({ name, address }).eq('id', siteId).select('id');
+    return expectWrite(error, data, 'Объект не найден');
+  });
+}
+
+export function deleteSite(siteId: string): Promise<QueryResult<true>> {
+  return withClient(async (supabase) => {
+    const { data, error } = await supabase.from('sites').delete().eq('id', siteId).select('id');
+    return expectWrite(error, data, 'Объект не найден', 'Не удалось удалить');
+  });
+}
+
+export function createTask(
+  siteId: string,
+  input: { title: string; description: string; assigneeId: string },
+): Promise<QueryResult<{ id: string }>> {
+  return withClient(async (supabase) => {
+    const { data, error } = await supabase
+      .from('tasks')
+      .insert({
+        site_id: siteId,
+        title: input.title,
+        description: input.description,
+        assignee_id: input.assigneeId,
+      })
+      .select('id')
+      .single();
+    if (error) return { data: null, error: mutationErrorMessage(error) };
+    return { data: { id: data.id }, error: null };
+  });
+}
+
+export function updateTask(
+  taskId: string,
+  input: { title: string; description: string; assigneeId: string },
+): Promise<QueryResult<true>> {
+  return withClient(async (supabase) => {
+    const { data, error } = await supabase
+      .from('tasks')
+      .update({
+        title: input.title,
+        description: input.description,
+        assignee_id: input.assigneeId,
+      })
+      .eq('id', taskId)
+      .select('id');
+    return expectWrite(error, data, 'Задача не найдена');
+  });
+}
+
+export function deleteTask(taskId: string): Promise<QueryResult<true>> {
+  return withClient(async (supabase) => {
+    const { data, error } = await supabase.from('tasks').delete().eq('id', taskId).select('id');
+    return expectWrite(error, data, 'Задача не найдена', 'Не удалось удалить');
   });
 }

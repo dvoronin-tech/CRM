@@ -53,7 +53,7 @@ export function AppShell() {
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
-        <Link className={styles.brand} to="/sites">
+        <Link className={styles.brand} to="/">
           Объекты и задачи
         </Link>
         <nav className={styles.nav} aria-label="Разделы">

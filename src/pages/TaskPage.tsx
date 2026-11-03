@@ -4,6 +4,7 @@ import { type FormEvent, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ErrorText, PageLoader } from '../components/PageStatus';
+import { FIELD_LIMIT } from '../domain/fields';
 import { actionsFor, TASK_STATUS_LABEL } from '../domain/labels';
 import { formatDateTime } from '../lib/format';
 import type { TaskStatus } from '../lib/database';
@@ -21,6 +22,16 @@ export function TaskPage() {
   const { data, error, loading } = useQuery(() => fetchTask(id), [id, reloadKey]);
 
   async function runTransition(toStatus: TaskStatus, comment: string | null) {
+    const task = data?.task;
+    const allowed =
+      profile && task
+        ? actionsFor(profile.role, task.status, task.assignee_id === profile.id)
+        : [];
+    if (!allowed.some((action) => action.to === toStatus)) {
+      setActionError('Такой переход статуса недоступен');
+      return;
+    }
+
     setPending(true);
     setActionError(null);
     const result = await transitionTask(id, toStatus, comment);
@@ -40,15 +51,22 @@ export function TaskPage() {
       setActionError('Чтобы вернуть задачу, нужен комментарий');
       return;
     }
+    if (comment.length > FIELD_LIMIT.comment) {
+      setActionError(`Комментарий длиннее ${FIELD_LIMIT.comment} символов`);
+      return;
+    }
     void runTransition('rework', comment);
   }
 
   if (loading && data === null) return <PageLoader />;
   if (error && data === null) return <ErrorText>{error}</ErrorText>;
-  if (!data?.task) return <p className={layout.muted}>Задача не найдена</p>;
+  if (!data?.task || !profile) return <p className={layout.muted}>Задача не найдена</p>;
+  if (profile.role === 'executor' && data.task.assignee_id !== profile.id) {
+    return <p className={layout.muted}>Задача не найдена</p>;
+  }
 
   const { task, history } = data;
-  const actions = profile ? actionsFor(profile.role, task.status) : [];
+  const actions = actionsFor(profile.role, task.status, task.assignee_id === profile.id);
   const directActions = actions.filter((action) => !action.needsComment);
   const reworkAction = actions.find((action) => action.needsComment);
 
@@ -70,7 +88,7 @@ export function TaskPage() {
       {error ? <ErrorText>{error}</ErrorText> : null}
       <dl className={layout.meta}>
         <dt>Описание</dt>
-        <dd>{task.description || 'Без описания'}</dd>
+        <dd className={layout.multiline}>{task.description || 'Без описания'}</dd>
         <dt>Объект</dt>
         <dd>{task.siteName ?? 'Объект недоступен'}</dd>
         <dt>Адрес</dt>
@@ -95,7 +113,15 @@ export function TaskPage() {
           </Button>
         ))}
         {reworkAction ? (
-          <Button type="button" variant="default" loading={pending} onClick={openRework}>
+          <Button
+            type="button"
+            variant="default"
+            loading={pending}
+            onClick={() => {
+              setActionError(null);
+              openRework();
+            }}
+          >
             {reworkAction.label}
           </Button>
         ) : null}
@@ -122,7 +148,7 @@ export function TaskPage() {
                 <Table.Td>{event.actorName ?? 'Неизвестный'}</Table.Td>
                 <Table.Td>{event.from_status ? TASK_STATUS_LABEL[event.from_status] : '—'}</Table.Td>
                 <Table.Td>{TASK_STATUS_LABEL[event.to_status]}</Table.Td>
-                <Table.Td>{event.comment ?? '—'}</Table.Td>
+                <Table.Td className={layout.multiline}>{event.comment ?? '—'}</Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>
@@ -131,7 +157,14 @@ export function TaskPage() {
       <Modal opened={reworkOpened} onClose={closeRework} title="Вернуть на доработку">
         <form onSubmit={handleRework}>
           <Stack gap="md">
-            <Textarea label="Комментарий" name="comment" autosize minRows={3} />
+            <Textarea
+              label="Комментарий"
+              name="comment"
+              required
+              autosize
+              minRows={3}
+              maxLength={FIELD_LIMIT.comment}
+            />
             {actionError ? <ErrorText>{actionError}</ErrorText> : null}
             <Group justify="flex-end" gap="sm">
               <Button type="button" variant="default" onClick={closeRework}>
