@@ -1,7 +1,10 @@
 import { Button } from '@mantine/core';
-import { Link, Outlet, useLocation } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import { USER_ROLE_LABEL, type UserRole } from '../domain/labels';
 import { useSession } from '../hooks/useSession';
+import { ErrorText } from './PageStatus';
 import styles from './AppShell.module.scss';
 
 type NavItem = {
@@ -27,13 +30,24 @@ function isActive(pathname: string, to: string): boolean {
 }
 
 export function AppShell() {
-  const session = useSession();
+  const sessionUser = useSession();
+  const { session, profileError, signOut } = useAuth();
+  const navigate = useNavigate();
   const { pathname } = useLocation();
-  const links = session ? NAV_BY_ROLE[session.role] : NAV_WHEN_SIGNED_OUT;
-  const roleLabel = session ? USER_ROLE_LABEL[session.role] : 'Роль не загружена';
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const links = sessionUser ? NAV_BY_ROLE[sessionUser.role] : NAV_WHEN_SIGNED_OUT;
+  const roleLabel = sessionUser
+    ? `${sessionUser.fullName} · ${USER_ROLE_LABEL[sessionUser.role]}`
+    : 'Профиль не загружен';
 
-  function handleLogout() {
-    // TODO: await getSupabase().auth.signOut() and navigate to /login.
+  async function handleLogout() {
+    setSignOutError(null);
+    const error = await signOut();
+    if (error) {
+      setSignOutError(error);
+      return;
+    }
+    navigate('/login', { replace: true });
   }
 
   return (
@@ -56,17 +70,16 @@ export function AppShell() {
         </nav>
         <div className={styles.session}>
           <p className={styles.role}>{roleLabel}</p>
-          {session ? null : (
-            <Button component={Link} to="/login" variant="default">
-              Войти
+          {session ? (
+            <Button type="button" variant="default" onClick={() => void handleLogout()}>
+              Выйти
             </Button>
-          )}
-          <Button type="button" variant="default" onClick={handleLogout}>
-            Выйти
-          </Button>
+          ) : null}
         </div>
       </header>
       <main className={styles.main}>
+        {profileError ? <ErrorText>{profileError}</ErrorText> : null}
+        {signOutError ? <ErrorText>{signOutError}</ErrorText> : null}
         <Outlet />
       </main>
     </div>

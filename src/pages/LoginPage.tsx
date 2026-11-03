@@ -1,31 +1,73 @@
-import { Button, TextInput } from '@mantine/core';
-import { type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Button, PasswordInput, TextInput } from '@mantine/core';
+import { useState, type FormEvent } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
+import { ErrorText, PageLoader } from '../components/PageStatus';
 import styles from './LoginPage.module.scss';
 
+type LoginLocationState = {
+  from?: string;
+};
+
 export function LoginPage() {
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  const { session, profile, loading, configError, signIn } = useAuth();
+  const location = useLocation();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const from = (location.state as LoginLocationState | null)?.from;
+  const fallback = profile?.role === 'executor' ? '/my-tasks' : '/sites';
+  const nextPath = from && from !== '/login' ? from : fallback;
+
+  if (loading) return <PageLoader />;
+  if (session) return <Navigate to={nextPath} replace />;
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // TODO: const form = new FormData(event.currentTarget);
-    // TODO: getSupabase().auth.signInWithPassword({ email, password })
-    // TODO: show the Russian error when the password is wrong, then go to /sites or /my-tasks by role.
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setError('Введите почту');
+      return;
+    }
+    if (!password) {
+      setError('Введите пароль');
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    const signInError = await signIn(trimmedEmail, password);
+    setSubmitting(false);
+    setError(signInError);
   }
 
   return (
     <main className={styles.screen}>
-      <form className={styles.card} onSubmit={handleSubmit}>
+      <form className={styles.card} noValidate onSubmit={(event) => void handleSubmit(event)}>
         <h1 className={styles.title}>Вход</h1>
-        <TextInput label="Email" name="email" type="email" autoComplete="username" required />
+        <p className={styles.note}>Регистрация закрыта. Учётную запись выдаёт администратор.</p>
+        {configError ? <ErrorText>{configError}</ErrorText> : null}
         <TextInput
+          label="Почта"
+          name="email"
+          type="email"
+          autoComplete="username"
+          value={email}
+          onChange={(event) => setEmail(event.currentTarget.value)}
+        />
+        <PasswordInput
           label="Пароль"
           name="password"
-          type="password"
           autoComplete="current-password"
-          required
+          value={password}
+          onChange={(event) => setPassword(event.currentTarget.value)}
         />
-        <Button type="submit">Войти</Button>
-        <p className={styles.note}>Регистрация закрыта. Учётную запись выдаёт администратор.</p>
-        <Link to="/sites">К списку объектов</Link>
+        {error ? <ErrorText>{error}</ErrorText> : null}
+        <Button type="submit" loading={submitting} disabled={Boolean(configError)}>
+          Войти
+        </Button>
       </form>
     </main>
   );

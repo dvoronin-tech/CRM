@@ -14,3 +14,28 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   accepted: 'Принята',
   rework: 'На доработке',
 };
+
+export type TaskAction = {
+  to: TaskStatus;
+  label: string;
+  needsComment: boolean;
+};
+
+export function actionsFor(role: UserRole, status: TaskStatus): TaskAction[] {
+  if (role === 'executor' && status === 'new') {
+    return [{ to: 'in_progress', label: 'Взять в работу', needsComment: false }];
+  }
+  if (role === 'executor' && status === 'in_progress') {
+    return [{ to: 'in_review', label: 'Отправить на проверку', needsComment: false }];
+  }
+  if (role === 'executor' && status === 'rework') {
+    return [{ to: 'in_progress', label: 'Вернуть в работу', needsComment: false }];
+  }
+  if (role === 'assigner' && status === 'in_review') {
+    return [
+      { to: 'accepted', label: 'Принять', needsComment: false },
+      { to: 'rework', label: 'Вернуть на доработку', needsComment: true },
+    ];
+  }
+  return [];
+}
