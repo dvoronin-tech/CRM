@@ -4,6 +4,8 @@ Mini-CRM for construction sites and tasks. A Vite + React + TypeScript single-pa
 
 Repository: [dvoronin-tech/CRM](https://github.com/dvoronin-tech/CRM).
 
+Production: [https://mini-crm-two-gamma.vercel.app](https://mini-crm-two-gamma.vercel.app).
+
 Hosted Supabase project: [cmhftmlcaxwrqnyyrouq](https://supabase.com/dashboard/project/cmhftmlcaxwrqnyyrouq). API URL: `https://cmhftmlcaxwrqnyyrouq.supabase.co`.
 
 ## Requirements
@@ -87,7 +89,7 @@ If the RPC or a guard rejects the action, the screen shows a Russian phrase for 
 
 ## Deploy
 
-The app is a static Vite build. Vercel needs the same two variables at **build** time, for Production, Preview, and Development:
+The app is a static Vite build. The Vercel project is `mini-crm`, and the production URL above already has a deployment. Vite reads env at build time, so a new key means a new deploy. Set only these two variables, for Production, Preview, and Development:
 
 - `VITE_SUPABASE_URL` = `https://cmhftmlcaxwrqnyyrouq.supabase.co`
 - `VITE_SUPABASE_ANON_KEY` = the public anon or publishable key
