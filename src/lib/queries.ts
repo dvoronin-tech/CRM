@@ -258,12 +258,7 @@ export function fetchTask(
   });
 }
 
-/**
- * Calls the MVP `transition_task` stub.
- * TODO(security): the SQL function only writes `tasks.status` and ignores
- * role, the allowed edge, the comment, and `task_status_events`.
- * Keep this call when the security pass replaces the function body.
- */
+/** Status changes go through `rpc('transition_task')`. The client never patches `tasks.status`. */
 export function transitionTask(
   taskId: string,
   toStatus: TaskStatus,
