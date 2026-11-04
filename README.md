@@ -34,6 +34,12 @@ Set only these two variables. Both are public client values. Do not add a server
 
 The shell renders without these values and the login screen explains that the connection is missing. Do not commit `.env.local`.
 
+## Run locally
+
+```bash
+pnpm dev
+```
+
 ## Migrations
 
 SQL lives in `supabase/migrations/`, applied in filename order:
