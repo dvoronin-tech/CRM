@@ -43,22 +43,6 @@ SQL lives in `supabase/migrations/`, applied in filename order:
 
 On a fresh database, run both files in the Supabase SQL editor, or use the Supabase CLI against this project. The hosted project `cmhftmlcaxwrqnyyrouq` already has both migrations. There is no seed file in the repository.
 
-## Local development
-
-```bash
-pnpm dev
-```
-
-Vite prints a local URL (default `http://localhost:5173`).
-
-| Script | What it does |
-| --- | --- |
-| `pnpm dev` | Start the dev server |
-| `pnpm typecheck` | Typecheck the app and Vite config |
-| `pnpm lint` | ESLint |
-| `pnpm build` | Typecheck and production build |
-| `pnpm preview` | Serve the production build |
-
 ## Demo accounts
 
 Sign-up is off. Accounts exist only in the Supabase dashboard, each with a matching `profiles` row. Passwords are not stored in this repository. Send them in the hh.ru chat, not in git.
@@ -71,28 +55,3 @@ Sign-up is off. Accounts exist only in the Supabase dashboard, each with a match
 | Executor | `anna.krylova@example.com`  | Крылова Анна   |
 
 An assigner lands on `/sites`. An executor lands on `/my-tasks`.
-
-## Routes
-
-| Path | Screen |
-| --- | --- |
-| `/login` | Email and password |
-| `/sites` | Site list |
-| `/sites/:id` | Site and its tasks |
-| `/tasks/:id` | Task, actions, history |
-| `/my-tasks` | Tasks for the executor |
-
-`/sites`, `/sites/:id`, `/tasks/:id`, and `/my-tasks` redirect to `/login` when there is no session. After sign-in the app loads `profiles` for the current user. «Мои задачи» selects `tasks` where `assignee_id` is the signed-in user. Task actions call `transition_task`. The function checks the role, the allowed edge, and a rework comment, then writes `tasks.status` and a `task_status_events` row in one transaction. Creating a task also writes the first history row (`from_status` empty, `to_status` `new`).
-
-If the RPC or a guard rejects the action, the screen shows a Russian phrase for the SQL code: `not_authenticated`, `task_not_found`, `forbidden`, `illegal_transition`, `comment_required`, `comment_too_long`, `status_change_forbidden`, `assignee_must_be_executor`, `author_must_be_assigner`, `task_must_start_new`, `immutable_column`, `profile_role_immutable`, `event_immutable`.
-
-`vercel.json` rewrites unknown paths to `index.html` so a refresh on `/sites` or `/tasks/:id` still loads the app. Vercel serves real files (JS, CSS) before that rewrite.
-
-## Deploy
-
-The app is a static Vite build. The Vercel project is `mini-crm`, and the production URL above already has a deployment. Vite reads env at build time, so a new key means a new deploy. Set only these two variables, for Production, Preview, and Development:
-
-- `VITE_SUPABASE_URL` = `https://cmhftmlcaxwrqnyyrouq.supabase.co`
-- `VITE_SUPABASE_ANON_KEY` = the public anon or publishable key
-
-Do not set `service_role` on Vercel. Do not put passwords in Vercel env.
