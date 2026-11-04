@@ -1,6 +1,12 @@
 # mini-crm
 
-Mini-CRM for construction sites and tasks. The app is a Vite + React + TypeScript SPA. Screen labels are Russian. An assigner creates, edits, and deletes sites and tasks. An executor sees their tasks and only the status buttons their role can use. Those buttons call `rpc('transition_task')`. The client never patches `tasks.status`. Postgres enforces the same split: row-level security, narrow column grants, and `private.transition_as` behind that RPC. A signed-in user who is not an assigner cannot read or change another person's tasks, and history rows cannot be inserted, updated, or deleted through the API.
+Mini-CRM for construction sites and tasks. A Vite + React + TypeScript single-page app. Screen labels are Russian. An assigner creates, edits, and deletes sites and tasks. An executor sees only their own tasks and the status buttons their role can use. Those buttons call `rpc('transition_task')`. The client never patches `tasks.status`. Postgres enforces the same split with row-level security, narrow column grants, and `private.transition_as` behind that RPC.
+
+Repository: [dvoronin-tech/CRM](https://github.com/dvoronin-tech/CRM).
+
+Production: [https://mini-crm-two-gamma.vercel.app](https://mini-crm-two-gamma.vercel.app).
+
+Hosted Supabase project: [cmhftmlcaxwrqnyyrouq](https://supabase.com/dashboard/project/cmhftmlcaxwrqnyyrouq). API URL: `https://cmhftmlcaxwrqnyyrouq.supabase.co`.
 
 ## Requirements
 
@@ -19,61 +25,92 @@ pnpm install
 cp .env.example .env.local
 ```
 
-Set:
+Set only these two variables. Both are public client values. Do not add a server secret, a `service_role` key, or any password to a `VITE_` variable or to git.
 
-- `VITE_SUPABASE_URL` — project URL from the Supabase API settings
-- `VITE_SUPABASE_ANON_KEY` — the public anon key
-
-The shell renders without these values and the login screen explains that the connection is missing. Put only the anon or publishable key in `VITE_` variables. Do not commit `.env.local`. There are no seeded users in the repository: sign-in needs accounts created in the Supabase dashboard, plus a matching `profiles` row.
-
-## Run
-
-```bash
-pnpm dev
-```
-
-Vite prints a local URL (default `http://localhost:5173`).
-
-| Script | What it does |
+| Name | Value |
 | --- | --- |
-| `pnpm dev` | Start the dev server |
-| `pnpm typecheck` | Typecheck the app and Vite config |
-| `pnpm lint` | ESLint |
-| `pnpm build` | Typecheck and production build |
-| `pnpm preview` | Serve the production build |
+| `VITE_SUPABASE_URL` | `https://cmhftmlcaxwrqnyyrouq.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | Public anon or publishable key from [Project Settings → API keys](https://supabase.com/dashboard/project/cmhftmlcaxwrqnyyrouq/settings/api-keys) |
 
-## Routes
+The shell renders without these values and the login screen explains that the connection is missing. Do not commit `.env.local`.
 
-| Path | Screen |
-| --- | --- |
-| `/login` | Email and password |
-| `/sites` | Site list |
-| `/sites/:id` | Site and its tasks |
-| `/tasks/:id` | Task, actions, history |
-| `/my-tasks` | Tasks for the executor |
+## Migrations
 
-`/sites`, `/sites/:id`, `/tasks/:id`, and `/my-tasks` redirect to `/login` when there is no session. After sign-in the app loads `profiles` for the current user. An executor opens `/my-tasks` and the navigation leads with that screen; an assigner opens `/sites` and only sees that destination. «Мои задачи» selects `tasks` where `assignee_id` is the signed-in user. Task actions call `transition_task`. The function checks the role, the allowed edge, and a rework comment, then writes `tasks.status` and a `task_status_events` row in one transaction. Creating a task also writes the first history row (`from_status` empty, `to_status` `new`).
+SQL lives in `supabase/migrations/`, applied in filename order:
 
-If the RPC or a guard rejects the action, the screen shows a Russian phrase for the SQL code: `not_authenticated`, `task_not_found`, `forbidden`, `illegal_transition`, `comment_required`, `comment_too_long`, `status_change_forbidden`, `assignee_must_be_executor`, `author_must_be_assigner`, `task_must_start_new`, `immutable_column`, `profile_role_immutable`, `event_immutable`.
+1. `supabase/migrations/20261103142736_mvp_schema.sql` — tables, enums, and the first policies.
+2. `supabase/migrations/20261103171653_security_rls.sql` — assigner and executor policies, status transitions, and append-only history.
 
-## Row-level security checks
+On a fresh database, run both files in the Supabase SQL editor, or use the Supabase CLI against this project. The hosted project `cmhftmlcaxwrqnyyrouq` already has both migrations. There is no seed file in the repository.
 
-Run these against the hosted project after migration `security_rls`. Use the anon or publishable key from the dashboard. Do not put a server secret in the client or in this repository. Demo passwords stay in the dashboard.
+## Demo accounts
 
-1. **No session.** `GET /rest/v1/sites?select=id` with the anon key and no user JWT returns HTTP 401 and Postgres `42501` (`permission denied for table sites`). `POST /rest/v1/rpc/transition_task` with the same key returns `42501` for the function. `POST /rest/v1/rpc/transition_as`, `seed_transition`, and `is_assigner` return `404` / `PGRST202`: those functions are not in the exposed `public` schema.
-2. **Executor, list.** Sign in as an executor, for example `petr.sokolov@example.com`. «Мои задачи» shows only that person's tasks. «Объекты» shows only sites where that person has a task. Open another executor's task URL: the screen says «Задача не найдена». Open a site where they have no task: «Объект не найден».
-3. **Executor, write.** The site screen has no create, edit, or delete buttons. On their own task, the only buttons are the edges for their current status («Взять в работу», «Отправить на проверку», or «Вернуть в работу»). There is no «Принять». After a successful button, the badge changes and a new history row appears. A second click on an edge that is no longer valid shows «Такой переход статуса недоступен» or «Это действие недоступно вашей роли».
-4. **Assigner.** Sign in as `maria.ivanova@example.com`. The site list shows every site, and each site shows every task. Status buttons appear only when the task is «На проверке»: «Принять» and «Вернуть на доработку». Returning without a comment shows «Чтобы вернуть задачу, нужен комментарий». Accepting adds a history row and leaves no further status button. Creating a task adds a history row «— → Новая». Deleting a task or a site removes that history. The delete copy says so.
-5. **Direct status write.** From the browser console, `supabase.from('tasks').update({ status: 'accepted' })` is rejected by the typed client. A raw `PATCH` that sets `status` returns `42501`. History `POST`, `PATCH`, and `DELETE` also return `42501`.
+Sign-up is off. Accounts exist only in the Supabase dashboard, each with a matching `profiles` row. Passwords are not stored in this repository. Send them in the hh.ru chat, not in git.
 
-SQL editor, as the database owner, to confirm the guards still apply above the API:
+| Role     | Email                       | Name in the UI |
+| -------- | --------------------------- | -------------- |
+| Assigner | `maria.ivanova@example.com` | Иванова Мария  |
+| Assigner | `gleb.budko@example.com`    | Глеб Будко     |
+| Executor | `petr.sokolov@example.com`  | Соколов Пётр   |
+| Executor | `anna.krylova@example.com`  | Крылова Анна   |
 
-```sql
-select n.nspname, p.proname, p.prosecdef
-from pg_proc as p
-join pg_namespace as n on n.oid = p.pronamespace
-where n.nspname in ('public', 'private')
-order by 1, 2;
-```
+An assigner lands on `/sites`. An executor lands on `/my-tasks`.
 
-Security definer (`prosecdef`) is set only on functions in `private`. `public.transition_task` is false. `update public.tasks set status = ...` raises `status_change_forbidden`. `update public.task_status_events` raises `event_immutable`. `update public.profiles set role = ...` raises `profile_role_immutable`. To change a role, drop `profiles_protect_role`, update the row, and create the trigger again.
+## Для руководителя: как устроена система и защита данных
+
+Это сайт для стройки. Постановщик заводит объекты (стройки) и задачи и назначает исполнителя. Исполнитель видит только свою работу и двигает её по статусам: взял в работу, сдал на проверку. Постановщик принимает задачу или возвращает её на доработку.
+
+Войти можно только по почте и паролю. Кнопки «зарегистрироваться» нет: новых людей с сайта завести нельзя, учётки создают вручную. Пароли в репозиторий не попадают, их передают отдельно в чате.
+
+### Роли
+
+Постановщиков и исполнителей может быть несколько. У каждого человека одна роль. Её записывают при создании учётки, с сайта её не сменить.
+
+Постановщик видит все стройки и все задачи. Он создаёт, правит и удаляет объекты и задачи, назначает исполнителя и закрывает проверку. Вернуть задачу на доработку без комментария нельзя: комментарий остаётся в истории.
+
+Исполнитель видит только свои задачи и только те стройки, где у него есть задача. На карточке стройки чужие задачи ему не показываются.
+
+### Как движется задача
+
+Задача идёт по цепочке. Перескочить шаг нельзя.
+
+1. Постановщик создаёт задачу. Она сразу «Новая».
+2. Назначенный исполнитель нажимает «Взять в работу» — задача «В работе».
+3. Когда работа готова, он нажимает «Отправить на проверку» — задача «На проверке».
+4. Постановщик принимает её («Принята») или возвращает на доработку. Возврат без комментария система не пропускает.
+5. С доработки исполнитель снова берёт задачу в работу, и проверка повторяется.
+
+Из «Новой» нельзя сразу сделать «Принята». Из «В работе» нельзя принять задачу, минуя проверку. У принятой задачи кнопок смены статуса нет.
+
+Каждый шаг записывается сам: кто, когда, из какого статуса в какой, и комментарий, если он был. История видна в карточке задачи и постановщику, и исполнителю, которому задача назначена.
+
+### Что показывает экран
+
+После входа постановщик попадает в список объектов. Исполнитель — на экран «Мои задачи».
+
+Кнопки зависят от роли и текущего статуса. У исполнителя на своих задачах только «Взять в работу», «Отправить на проверку» и «Вернуть в работу». Кнопок «Новый объект», «Новая задача», «Изменить», «Удалить», «Принять» и «Вернуть на доработку» у него нет. Если перехода нет, кнопок смены статуса тоже нет.
+
+Человек без учётки остаётся на странице входа.
+
+### Почему те же запреты стоят в базе
+
+Скрытых кнопок мало, если кто-то обойдёт экран и спросит базу напрямую. Те же запреты записаны в самой базе: это правила доступа в базе (в документации — RLS).
+
+Чужую задачу такой запрос не откроет. Стройку, где у исполнителя нет задач, тоже. Запрещённую смену статуса база не пропустит, даже если её отправить вручную, минуя кнопки. Запись истории нельзя подправить или стереть отдельно: её пишет сама система, когда статус меняется. История уходит только вместе с удалённой задачей. Удалить задачу может только постановщик.
+
+Сайт в браузере обращается к базе с публичным ключом приложения (в документации — anon key). Это не пароль. Ключ только позволяет спросить базу от имени вошедшего человека. Что ему можно увидеть и изменить, решают правила его роли. Без входа по почте и паролю задачи не отдаются.
+
+### Чего не может исполнитель
+
+- открыть чужую задачу или стройку, где у него нет задач;
+- создать, изменить или удалить объект или задачу;
+- принять задачу или вернуть её на доработку;
+- перескочить статус, например из «Новой» сразу в «Принята»;
+- переписать или стереть историю статусов.
+
+Вложений, уведомлений и поиска нет: тестовое их не просило.
+
+### Короткий словарь
+
+- **RLS** — правила доступа в базе. База сама решает, какие строки этот человек может прочитать или изменить.
+- **Anon key** — публичный ключ приложения, не пароль. Он нужен сайту, чтобы обратиться к базе. Сам по себе чужие задачи не открывает.
